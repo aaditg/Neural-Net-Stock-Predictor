@@ -1,4 +1,5 @@
 Stock Slope Predictor
+
 This project trains a neural network to predict the slope of stock price changes based on historical data. It takes 16 1-minute intervals of stock prices as input and outputs the slope of the next 16 minutes.
 
 Data Collection: Stock price data is downloaded using Yahoo's yfinance library.
