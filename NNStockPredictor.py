@@ -4,88 +4,105 @@ import yfinance as yf
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
 
-def calculate_slope(points):
-    time_indices = np.arange(len(points)).reshape(-1, 1)
-    model = LinearRegression().fit(time_indices, points)
-    return model.coef_[0]
+class StockPredictor:
 
-symbol = 'SPY' #CHANGE TO SYMBOL NEEDED
-data = yf.download(symbol, period="5d", interval="1m")
+    def __init__(self, symbol, lr=0.1, epochs=10000, hn=32):
+        self.symbol = symbol
+        self.lr = lr
+        self.epochs = epochs
+        self.hn = hn
+        self.input_scaler = MinMaxScaler()
+        self.output_scaler = MinMaxScaler()
+        self.nn = NeuralNetwork(input_nodes=16, hidden_nodes=self.hn, output_nodes=1, learning_rate=self.lr, scaler=self.input_scaler)
+        self.predicted_slopes = []
+        self.slopes = []
+        self.losses = []
 
-def amplify_slope(data, amplification_factor=5):
-    time_indices = np.arange(len(data)).reshape(-1, 1)
-    model = LinearRegression()
-    model.fit(time_indices, data)
-    slope = model.coef_[0]
-    amplified_data = data + (data - model.predict(time_indices)) * amplification_factor
-    return amplified_data
+    def fetch_data(self):
+        data = yf.download(self.symbol, period="5d", interval="1m")
+        return data['Close']
+    
+    def calculate_slope(self, points):
+        time_indices = np.arange(len(points)).reshape(-1, 1)
+        model = LinearRegression().fit(time_indices, points)
+        return model.coef_[0]
+    
+    def predict_next_slope(self):
+        recent_data = yf.download(self.symbol, period="1d", interval="1m")['Close'].values[-16:]
+        recent_data_scaled = self.input_scaler.transform(recent_data.reshape(1, -1))
+        
+        predicted_slope_scaled = self.nn.forward_propagation(recent_data_scaled)
+        predicted_slope = self.output_scaler.inverse_transform(predicted_slope_scaled)
+        print(f"Predicted slope for the next 16 points: {predicted_slope}")
+        
 
-def predict_next_slope():
+    def train_model(self):
+        data = yf.download(self.symbol, period="5d", interval="1m")
+        close_prices = data['Close']
+        data['hour'] = data.index.hour
+        data['minute'] = data.index.minute
 
-    recent_data = yf.download(symbol, period="1d", interval="1m")['Close'].values[-16:]
-    recent_data_scaled = input_scaler.transform(recent_data.reshape(1, -1))
-    predicted_slope_scaled = nn.forward_propagation(recent_data_scaled)
-    predicted_slope = output_scaler.inverse_transform(predicted_slope_scaled)
-    print(f"Predicted slope for the next 16 points: {predicted_slope}")
+        first_16_points = []
+        slopes = []
 
-close_prices = data['Close']
-data['hour'] = data.index.hour
-data['minute'] = data.index.minute
+        for hour in range(24):
+            hour_data = data[data['hour'] == hour]
+            if len(hour_data) >= 32:
+                first_16 = hour_data.iloc[:16]['Close'].values
+                second_16 = hour_data.iloc[16:32]['Close'].values
+                slope = self.calculate_slope(second_16)
+                first_16_points.append(first_16)
+                slopes.append(slope)
 
-first_16_points = []
-slopes = []
+        first_16_points = np.array(first_16_points)
+        first_16_points = np.squeeze(first_16_points)
+        slopes = np.array(slopes).reshape(-1, 1)
 
-for hour in range(24):
-    hour_data = data[data['hour'] == hour]
-    if len(hour_data) >= 32:
-        first_16 = hour_data.iloc[:16]['Close'].values
-        second_16 = hour_data.iloc[16:32]['Close'].values
-        slope = calculate_slope(second_16)
-        first_16_points.append(first_16)
-        slopes.append(slope)
+        # Scale both inputs and outputs
 
-first_16_points = np.array(first_16_points)
-first_16_points = np.squeeze(first_16_points)
-slopes = np.array(slopes).reshape(-1, 1)
+        first_16_points_scaled = self.input_scaler.fit_transform(first_16_points)
+        slopes_scaled = self.output_scaler.fit_transform(slopes)
 
-# Scale both inputs and outputs
-input_scaler = MinMaxScaler()
-output_scaler = MinMaxScaler()
-first_16_points_scaled = input_scaler.fit_transform(first_16_points)
-slopes_scaled = output_scaler.fit_transform(slopes)
+        losses = self.nn.train(first_16_points_scaled, slopes_scaled, iterations=self.epochs)
+        self.losses = losses
 
-#CHANGE TO TUNE MODEL
-lr = 0.1
-epochs = 10000
-hn = 32
+        predicted_slopes = []
+        for i in range(len(first_16_points_scaled)):
+            predicted_slope = self.nn.forward_propagation(first_16_points_scaled[i].reshape(1, -1))
+            predicted_slopes.append(predicted_slope)
 
-#CHANGE INPUT NODES AND OUTPUT NIDES IF NEEDED FOR OTHER REGRESSION TASKS
-nn = NeuralNetwork(input_nodes=16, hidden_nodes=hn, output_nodes=1, learning_rate=lr, scaler=input_scaler)
+        predicted_slopes = np.array(predicted_slopes).reshape(-1, 1)  # Reshape to 2D array
+        predicted_slopes = self.output_scaler.inverse_transform(predicted_slopes)  # Inverse transform to get actual values
 
-losses = nn.train(first_16_points_scaled, slopes_scaled, iterations=epochs)
+        self.predicted_slopes = predicted_slope
+        self.slopes = slopes
 
-predicted_slopes = []
-for i in range(len(first_16_points_scaled)):
-    predicted_slope = nn.forward_propagation(first_16_points_scaled[i].reshape(1, -1))
-    predicted_slopes.append(predicted_slope)
-
-predicted_slopes = np.array(predicted_slopes).reshape(-1, 1)  # Reshape to 2D array
-predicted_slopes = output_scaler.inverse_transform(predicted_slopes)  # Inverse transform to get actual values
+    def print_training_statistics(self):
+        print(f"Learning rate:  {self.lr}")
+        print(f"Iterations:  {self.epochs}")
+        print(f"Hidden Nodes:  {self.hn}")
 
 
+    def mean_squared_error(self):
+        mse = np.mean((self.predicted_slopes - self.slopes.flatten())**2)
+        print(f"Mean Squared Error: {mse}")
 
-print(f"Predicted slopes: {predicted_slopes}")
-print(f"Actual slopes: {slopes.flatten()}")
-print(f"Learning rate:  {lr}")
-print(f"Iterations:  {epochs}")
-print(f"Hidden Nodes:  {hn}")
+    def plot_loss(self):
+        self.nn.plot_loss(self.losses)
 
-mse = np.mean((predicted_slopes - slopes.flatten())**2)
-print(f"Mean Squared Error: {mse}")
 
-predict_next_slope()
+    def run(self):
+        self.fetch_data()
+        self.train_model()
+        self.predict_next_slope()
 
-nn.plot_loss(losses)
+   
+
+        
+
+
+        
+
 
 
 
