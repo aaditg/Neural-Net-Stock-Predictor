@@ -6,11 +6,12 @@ def weight_init(layer_in, layer_out):
     return np.random.uniform(-limit, limit, (layer_in, layer_out))
 
 class NeuralNetwork:
-    def __init__(self, input_nodes, hidden_nodes, output_nodes, learning_rate=0.01):
+    def __init__(self, input_nodes, hidden_nodes, output_nodes, learning_rate=0.01, scaler=None):
         self.input_nodes = input_nodes
         self.hidden_nodes = hidden_nodes
         self.output_nodes = output_nodes
         self.learning_rate = learning_rate
+        self.scaler = scaler
 
         self.weights_input_hidden = weight_init(self.input_nodes, self.hidden_nodes)
         self.bias_hidden = np.zeros((1, hidden_nodes))
@@ -29,7 +30,7 @@ class NeuralNetwork:
         self.hidden_layer_input = np.dot(data, self.weights_input_hidden) + self.bias_hidden
         self.hidden_layer_output = self.relu(self.hidden_layer_input)
         self.output_layer_input = np.dot(self.hidden_layer_output, self.weights_hidden_output) + self.bias_output
-        self.predictions = self.output_layer_input  # Linear activation for regression
+        self.predictions = self.output_layer_input  # Linear for regression
         return self.predictions
 
     def backward_propagation(self, data, target):
@@ -64,3 +65,9 @@ class NeuralNetwork:
         plt.ylabel('Loss')
         plt.grid()
         plt.show()
+
+    def predict(self, data):
+        data_scaled = self.scaler.transform(data.reshape(1, -1))
+        prediction_scaled = self.forward_propagation(data_scaled)
+        prediction = self.scaler.inverse_transform(prediction_scaled)
+        return prediction
